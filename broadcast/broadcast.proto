@@ -1,0 +1,23 @@
+syntax="proto3";
+
+option go_package = "fake.com/RPC_Chat_App/broadcast";
+
+package broadcast;
+
+service Broadcast {
+    rpc CreateStream (Connect) returns (stream Message) {}
+    rpc BroadcastMessage (Message) returns (Close) {}
+}
+
+message Connect {
+    string uid = 1;
+}
+
+message Message {
+    string sender = 1;
+    string msg = 2;
+}
+
+message Close {
+    string msg = 1;
+}
