@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
+	"os"
 
 	broadcast "fake.com/RPC_Chat_App/broadcast"
 	"google.golang.org/grpc"
@@ -33,10 +35,12 @@ func main() {
 		}
 	}()
 
+	userInputScanner := bufio.NewScanner(os.Stdin)
 	for {
-		var msgContent string
-		fmt.Scanln(&msgContent)
-		newMessage := &broadcast.Message{Sender: username, Msg: msgContent}
-		client.BroadcastMessage(context.Background(), newMessage)
+		if userInputScanner.Scan() {
+			msgContent := userInputScanner.Text()
+			newMessage := &broadcast.Message{Sender: username, Msg: msgContent}
+			client.BroadcastMessage(context.Background(), newMessage)
+		}
 	}
 }
