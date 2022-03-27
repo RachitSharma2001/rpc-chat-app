@@ -11,9 +11,11 @@ import (
 	"google.golang.org/grpc"
 )
 
+var userInputScanner = bufio.NewScanner(os.Stdin)
+
 func main() {
-	// for now username is hardcoded, eventually have user enter this
-	username := "Rachit"
+	nameOfUser := getNameOfUser()
+
 	conn, err := grpc.Dial(":5000", grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("Error while dialing port 5000: %v", err)
@@ -21,10 +23,11 @@ func main() {
 	defer conn.Close()
 	client := broadcast.NewBroadcastClient(conn)
 
-	streamOfMsgs, err := client.CreateStream(context.Background(), &broadcast.Connect{Uid: username})
+	streamOfMsgs, err := client.CreateStream(context.Background(), &broadcast.Connect{Uid: nameOfUser})
 	if err != nil {
 		log.Fatalf("Error while creating stream: %v", err)
 	}
+
 	go func() {
 		for {
 			newMessage, err := streamOfMsgs.Recv()
@@ -35,12 +38,29 @@ func main() {
 		}
 	}()
 
-	userInputScanner := bufio.NewScanner(os.Stdin)
+	enteredChatMsg := getUserEnteredChatMsg(nameOfUser)
+	client.BroadcastMessage(context.Background(), &broadcast.Message{Sender: nameOfUser, Msg: enteredChatMsg})
 	for {
 		if userInputScanner.Scan() {
 			msgContent := userInputScanner.Text()
-			newMessage := &broadcast.Message{Sender: username, Msg: msgContent}
+			newMessage := &broadcast.Message{Sender: nameOfUser, Msg: msgContent}
 			client.BroadcastMessage(context.Background(), newMessage)
 		}
 	}
+}
+
+func getNameOfUser() string {
+	fmt.Print("Please enter your name: ")
+	return getInputFromUser()
+}
+
+func getInputFromUser() string {
+	if userInputScanner.Scan() {
+		return userInputScanner.Text()
+	}
+	return ""
+}
+
+func getUserEnteredChatMsg(name string) string {
+	return fmt.Sprintf("%s has entered the chat\n", name)
 }
