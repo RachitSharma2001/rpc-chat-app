@@ -62,5 +62,5 @@ func getInputFromUser() string {
 }
 
 func getUserEnteredChatMsg(name string) string {
-	return fmt.Sprintf("%s has entered the chat\n", name)
+	return fmt.Sprintf("%s has entered the chat", name)
 }
