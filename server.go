@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"log"
 	"net"
 	"sync"
 
 	broadcast "fake.com/RPC_Chat_App/broadcast"
+	errhelp "fake.com/RPC_Chat_App/errhelp"
 	"google.golang.org/grpc"
 )
 
@@ -18,32 +18,58 @@ type BroadcastServer struct {
 
 func (b *BroadcastServer) CreateStream(conn *broadcast.Connect, stream broadcast.Broadcast_CreateStreamServer) error {
 	currUserChannel := make(chan broadcast.Message)
+	b.updateUserChannelsSafely(currUserChannel)
+	b.sendMessagesToStream(currUserChannel, stream)
+	return nil
+}
+
+func (b *BroadcastServer) updateUserChannelsSafely(currUserChannel chan broadcast.Message) {
 	b.mu.Lock()
 	b.userChannels = append(b.userChannels, currUserChannel)
 	b.mu.Unlock()
+}
+
+func (b *BroadcastServer) sendMessagesToStream(currUserChannel chan broadcast.Message, stream broadcast.Broadcast_CreateStreamServer) {
 	for {
 		msg := <-currUserChannel
 		stream.Send(&msg)
 	}
-	return nil
 }
 
 func (b *BroadcastServer) BroadcastMessage(ctx context.Context, message *broadcast.Message) (*broadcast.Close, error) {
 	for _, userCh := range b.userChannels {
-		userCh <- *message
+		b.sendMessageToChannel(message, userCh)
 	}
 	return &broadcast.Close{Msg: message.Msg}, nil
 }
 
+func (b *BroadcastServer) sendMessageToChannel(message *broadcast.Message, userCh chan broadcast.Message) {
+	userCh <- *message
+}
+
 func main() {
-	lis, err := net.Listen("tcp", ":5000")
-	if err != nil {
-		log.Fatalf("Error when trying to listen at port 5000: %v", err)
+	listener := listenAtPort(":5000")
+	server := registerServer()
+	connectServerToListener(listener, server)
+}
+
+func listenAtPort(port string) net.Listener {
+	lis, err := net.Listen("tcp", port)
+	if errhelp.ErrorExists(err) {
+		errhelp.ThrowPortListenErr(err)
 	}
-	server := grpc.NewServer()
-	broadcast.RegisterBroadcastServer(server, &BroadcastServer{})
-	err = server.Serve(lis)
-	if err != nil {
-		log.Fatalf("Error while trying to serve: %v", err)
+	return lis
+}
+
+func registerServer() *grpc.Server {
+	grpcServer := grpc.NewServer()
+	broadcast.RegisterBroadcastServer(grpcServer, &BroadcastServer{})
+	return grpcServer
+}
+
+func connectServerToListener(listener net.Listener, server *grpc.Server) {
+	err := server.Serve(listener)
+	if errhelp.ErrorExists(err) {
+		errhelp.ThrowServeErr(err)
 	}
 }
