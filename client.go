@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	broadcast "fake.com/RPC_Chat_App/broadcast"
 	"google.golang.org/grpc"
@@ -40,6 +42,16 @@ func main() {
 
 	enteredChatMsg := getUserEnteredChatMsg(nameOfUser)
 	client.BroadcastMessage(context.Background(), &broadcast.Message{Sender: nameOfUser, Msg: enteredChatMsg})
+
+	exitedChatListener := make(chan os.Signal)
+	signal.Notify(exitedChatListener, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-exitedChatListener
+		exitedChatMsg := getUserExitedChatMsg(nameOfUser)
+		client.BroadcastMessage(context.Background(), &broadcast.Message{Sender: nameOfUser, Msg: exitedChatMsg})
+		os.Exit(1)
+	}()
+
 	for {
 		if userInputScanner.Scan() {
 			msgContent := userInputScanner.Text()
@@ -63,4 +75,8 @@ func getInputFromUser() string {
 
 func getUserEnteredChatMsg(name string) string {
 	return fmt.Sprintf("%s has entered the chat", name)
+}
+
+func getUserExitedChatMsg(name string) string {
+	return fmt.Sprintf("%s has exited the chat", name)
 }
