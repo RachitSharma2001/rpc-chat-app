@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,39 +13,52 @@ import (
 	"google.golang.org/grpc"
 )
 
-var userInputScanner = bufio.NewScanner(os.Stdin)
+const port = ":5000"
+
+var userInputScanner *bufio.Scanner
+var client broadcast.BroadcastClient
+var nameOfUser string
 
 func main() {
-	nameOfUser := getNameOfUser()
+	nameOfUser = getNameOfUser()
 	conn := createConnection()
 	defer conn.Close()
-	client := createClient(conn)
-	streamOfSentMsgs := createStreamFromClient(client, nameOfUser)
-	listenForSentMsgs(streamOfSentMsgs)
-
-	tellServerUserHasEntered(client, nameOfUser)
-	setupUserExitMessage(client, nameOfUser)
-	listenForUserInput(client, nameOfUser)
+	createServerStreamListener(conn)
+	createUserListener()
 }
 
 func getNameOfUser() string {
+	userInputScanner = bufio.NewScanner(os.Stdin)
 	fmt.Print("Please enter your name: ")
 	return getInputFromUser()
 }
 
+func getInputFromUser() string {
+	if userInputScanner.Scan() {
+		return userInputScanner.Text()
+	}
+	return ""
+}
+
 func createConnection() *grpc.ClientConn {
-	conn, err := grpc.Dial(":5000", grpc.WithInsecure())
+	conn, err := grpc.Dial(port, grpc.WithInsecure())
 	if errhelp.ErrorExists(err) {
-		log.Fatalf("Error while dialing port 5000: %v", err)
+		errhelp.ThrowDialErr(err)
 	}
 	return conn
+}
+
+func createServerStreamListener(conn *grpc.ClientConn) {
+	client = createClient(conn)
+	streamOfSentMsgs := createStreamFromClient()
+	listenForSentMsgs(streamOfSentMsgs)
 }
 
 func createClient(conn *grpc.ClientConn) broadcast.BroadcastClient {
 	return broadcast.NewBroadcastClient(conn)
 }
 
-func createStreamFromClient(client broadcast.BroadcastClient, nameOfUser string) broadcast.Broadcast_CreateStreamClient {
+func createStreamFromClient() broadcast.Broadcast_CreateStreamClient {
 	streamOfSentMsgs, err := client.CreateStream(context.Background(), &broadcast.Connect{Uid: nameOfUser})
 	if errhelp.ErrorExists(err) {
 		errhelp.ThrowCreateStreamErr(err)
@@ -59,39 +71,43 @@ func listenForSentMsgs(streamOfSentMsgs broadcast.Broadcast_CreateStreamClient) 
 		for {
 			newMessage, err := streamOfSentMsgs.Recv()
 			if errhelp.ErrorExists(err) {
-				log.Fatalf("Error while recieving messages: %v", err)
+				errhelp.ThrowReceiveMsgErr(err)
 			}
-			fmt.Printf("%s: %s\n", newMessage.Sender, newMessage.Msg)
+			printMessage(newMessage.Sender, newMessage.Msg)
 		}
 	}()
 }
-func setupUserExitMessage(client broadcast.BroadcastClient, nameOfUser string) {
-	exitedChatListener := make(chan os.Signal)
-	signal.Notify(exitedChatListener, os.Interrupt, syscall.SIGTERM)
-	go listenForUserExit(client, exitedChatListener, nameOfUser)
+
+func printMessage(sender, msg string) {
+	fmt.Printf("%s: %s\n", sender, msg)
 }
 
-func listenForUserExit(client broadcast.BroadcastClient, exitedChatListener chan os.Signal, nameOfUser string) {
+func createUserListener() {
+	tellServerUserHasEntered()
+	setupUserExitMessage()
+	listenForUserInput()
+}
+
+func setupUserExitMessage() {
+	exitedChatListener := make(chan os.Signal)
+	signal.Notify(exitedChatListener, os.Interrupt, syscall.SIGTERM)
+	go listenForUserExit(exitedChatListener)
+}
+
+func listenForUserExit(exitedChatListener chan os.Signal) {
 	<-exitedChatListener
-	tellServerUserHasExited(client, nameOfUser)
+	tellServerUserHasExited()
 	os.Exit(1)
 }
 
-func tellServerUserHasEntered(client broadcast.BroadcastClient, nameOfUser string) {
+func tellServerUserHasEntered() {
 	enteredChatMsg := getUserEnteredChatMsg(nameOfUser)
 	client.BroadcastMessage(context.Background(), &broadcast.Message{Sender: nameOfUser, Msg: enteredChatMsg})
 }
 
-func tellServerUserHasExited(client broadcast.BroadcastClient, nameOfUser string) {
+func tellServerUserHasExited() {
 	exitedChatMsg := getUserExitedChatMsg(nameOfUser)
 	client.BroadcastMessage(context.Background(), &broadcast.Message{Sender: nameOfUser, Msg: exitedChatMsg})
-}
-
-func getInputFromUser() string {
-	if userInputScanner.Scan() {
-		return userInputScanner.Text()
-	}
-	return ""
 }
 
 func getUserEnteredChatMsg(name string) string {
@@ -102,7 +118,7 @@ func getUserExitedChatMsg(name string) string {
 	return fmt.Sprintf("%s has exited the chat", name)
 }
 
-func listenForUserInput(client broadcast.BroadcastClient, nameOfUser string) {
+func listenForUserInput() {
 	for {
 		if userInputScanner.Scan() {
 			msgContent := userInputScanner.Text()
