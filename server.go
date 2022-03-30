@@ -10,35 +10,50 @@ import (
 	"google.golang.org/grpc"
 )
 
+type MsgChan struct {
+	msg    chan broadcast.Message
+	active bool
+	index  int
+}
+
 type BroadcastServer struct {
 	mu           sync.Mutex
-	userChannels []chan broadcast.Message
+	userChannels []MsgChan
 	broadcast.UnimplementedBroadcastServer
 }
 
 func (b *BroadcastServer) CreateStream(conn *broadcast.Connect, stream broadcast.Broadcast_CreateStreamServer) error {
 	currUserChannel := make(chan broadcast.Message)
-	b.updateUserChannelsSafely(currUserChannel)
-	b.sendMessagesToStream(currUserChannel, stream)
-	return nil
+	currMsgChan := b.updateUserChannelsSafely(currUserChannel)
+	return b.sendMessagesToStream(currUserChannel, stream, currMsgChan)
 }
 
-func (b *BroadcastServer) updateUserChannelsSafely(currUserChannel chan broadcast.Message) {
+func (b *BroadcastServer) updateUserChannelsSafely(currUserChannel chan broadcast.Message) MsgChan {
 	b.mu.Lock()
-	b.userChannels = append(b.userChannels, currUserChannel)
+	msgChan := MsgChan{msg: currUserChannel, index: len(b.userChannels), active: true}
+	b.userChannels = append(b.userChannels, msgChan)
 	b.mu.Unlock()
+	return msgChan
 }
 
-func (b *BroadcastServer) sendMessagesToStream(currUserChannel chan broadcast.Message, stream broadcast.Broadcast_CreateStreamServer) {
+func (b *BroadcastServer) sendMessagesToStream(currUserChannel chan broadcast.Message, stream broadcast.Broadcast_CreateStreamServer, currMsgChan MsgChan) error {
 	for {
 		msg := <-currUserChannel
-		stream.Send(&msg)
+		err := stream.Send(&msg)
+		if errhelp.ErrorExists(err) {
+			b.mu.Lock()
+			b.userChannels[currMsgChan.index].active = false
+			b.mu.Unlock()
+			return err
+		}
 	}
 }
 
 func (b *BroadcastServer) BroadcastMessage(ctx context.Context, message *broadcast.Message) (*broadcast.Close, error) {
 	for _, userCh := range b.userChannels {
-		b.sendMessageToChannel(message, userCh)
+		if userCh.active {
+			b.sendMessageToChannel(message, userCh.msg)
+		}
 	}
 	return &broadcast.Close{Msg: message.Msg}, nil
 }
