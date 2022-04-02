@@ -24,13 +24,14 @@ type BroadcastServer struct {
 
 func (b *BroadcastServer) CreateStream(conn *broadcast.Connect, stream broadcast.Broadcast_CreateStreamServer) error {
 	currUserChannel := make(chan broadcast.Message)
-	currMsgChan := b.updateUserChannelsSafely(currUserChannel)
+	currMsgChan := b.addNewMsgChannel(currUserChannel)
 	return b.sendMessagesToStream(currUserChannel, stream, currMsgChan)
 }
 
-func (b *BroadcastServer) updateUserChannelsSafely(currUserChannel chan broadcast.Message) MsgChan {
+func (b *BroadcastServer) addNewMsgChannel(currUserChannel chan broadcast.Message) MsgChan {
 	b.mu.Lock()
-	msgChan := MsgChan{msg: currUserChannel, index: len(b.userChannels), active: true}
+	currUserChannelLen := len(b.userChannels)
+	msgChan := MsgChan{msg: currUserChannel, index: currUserChannelLen, active: true}
 	b.userChannels = append(b.userChannels, msgChan)
 	b.mu.Unlock()
 	return msgChan
@@ -41,21 +42,29 @@ func (b *BroadcastServer) sendMessagesToStream(currUserChannel chan broadcast.Me
 		msg := <-currUserChannel
 		err := stream.Send(&msg)
 		if errhelp.ErrorExists(err) {
-			b.mu.Lock()
-			b.userChannels[currMsgChan.index].active = false
-			b.mu.Unlock()
+			b.inactivateUserChannel(currMsgChan.index)
 			return err
 		}
 	}
 }
 
+func (b *BroadcastServer) inactivateUserChannel(indexOfChan int) {
+	b.mu.Lock()
+	b.userChannels[indexOfChan].active = false
+	b.mu.Unlock()
+}
+
 func (b *BroadcastServer) BroadcastMessage(ctx context.Context, message *broadcast.Message) (*broadcast.Close, error) {
 	for _, userCh := range b.userChannels {
-		if userCh.active {
+		if b.channelStillActive(userCh) {
 			b.sendMessageToChannel(message, userCh.msg)
 		}
 	}
 	return &broadcast.Close{Msg: message.Msg}, nil
+}
+
+func (b *BroadcastServer) channelStillActive(userCh MsgChan) bool {
+	return userCh.active
 }
 
 func (b *BroadcastServer) sendMessageToChannel(message *broadcast.Message, userCh chan broadcast.Message) {
