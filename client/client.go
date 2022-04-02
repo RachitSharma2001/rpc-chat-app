@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	broadcast "fake.com/RPC_Chat_App/broadcast"
@@ -18,6 +19,7 @@ const port = ":5000"
 var userInputScanner *bufio.Scanner
 var client broadcast.BroadcastClient
 var nameOfUser string
+var wg sync.WaitGroup
 
 func main() {
 	nameOfUser = getNameOfUser()
@@ -25,6 +27,7 @@ func main() {
 	defer conn.Close()
 	createServerStreamListener(conn)
 	createUserListener()
+	wg.Wait()
 }
 
 func getNameOfUser() string {
@@ -67,14 +70,17 @@ func createStreamFromClient() broadcast.Broadcast_CreateStreamClient {
 }
 
 func listenForSentMsgs(streamOfSentMsgs broadcast.Broadcast_CreateStreamClient) {
+	wg.Add(1)
 	go func() {
 		for {
 			newMessage, err := streamOfSentMsgs.Recv()
 			if errhelp.ErrorExists(err) {
 				errhelp.ThrowReceiveMsgErr(err)
+				break
 			}
 			printMessage(newMessage.Sender, newMessage.Msg)
 		}
+		wg.Done()
 	}()
 }
 
@@ -119,11 +125,16 @@ func getUserExitedChatMsg(name string) string {
 }
 
 func listenForUserInput() {
+	wg.Add(1)
 	for {
 		if userInputScanner.Scan() {
 			msgContent := userInputScanner.Text()
 			newMessage := &broadcast.Message{Sender: nameOfUser, Msg: msgContent}
-			client.BroadcastMessage(context.Background(), newMessage)
+			_, err := client.BroadcastMessage(context.Background(), newMessage)
+			if errhelp.ErrorExists(err) {
+				break
+			}
 		}
 	}
+	wg.Done()
 }
