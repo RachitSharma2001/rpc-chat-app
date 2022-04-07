@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func (b *BroadcastServer) sendMessageToChannel(message *broadcast.Message, userC
 	userCh <- *message
 }
 
-func main() {
+func SetUpServer() {
 	listener := listenAtPort(":5000")
 	server := registerServer()
 	connectServerToListener(listener, server)
