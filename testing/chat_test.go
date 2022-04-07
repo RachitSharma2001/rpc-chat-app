@@ -1,10 +1,15 @@
 package testing_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"fake.com/RPC_Chat_App/broadcast"
+	"fake.com/RPC_Chat_App/server"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"google.golang.org/grpc"
 )
 
 func TestTesting(t *testing.T) {
@@ -12,9 +17,8 @@ func TestTesting(t *testing.T) {
 	RunSpecs(t, "Testing Suite")
 }
 
-/*
 var _ = Describe("Server and Client", func() {
-	setUpServer()
+	go server.SetUpServer()
 
 	const port = ":5000"
 	conn, _ := grpc.Dial(port, grpc.WithInsecure())
@@ -61,4 +65,4 @@ var _ = Describe("Server and Client", func() {
 		})
 	})
 
-})*/
+})
